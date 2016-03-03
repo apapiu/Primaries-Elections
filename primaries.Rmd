@@ -1,0 +1,141 @@
+---
+title: "Primaries"
+output: html_document
+---
+We will be looking at the Primary results in Iowa and New Hampshire.
+
+```{r, messages = FALSE, warnring = FALSE}
+library(tigris)
+library(leaflet)
+library(magrittr)
+library(dplyr)
+library(acs)
+library(ggplot2)
+library(plotly)
+
+#we'll focus mostly on iowa:
+primary <- read.csv("PrimaryResults.csv", stringsAsFactors = FALSE)
+
+iowa.counties <- counties(state = "IA") #spatial data using tigris
+
+bernie.ia <- filter(primary, State == "Iowa", Party == "Democrat",
+                    Candidate == "Bernie Sanders")
+
+merge <- geo_join(iowa.counties, bernie.ia, "NAME", "County")
+
+#map of percentage voting for bernie
+pal <- colorNumeric(c("Blues"), domain = NULL)
+popup = paste0(merge$County, " County", "<br>", 
+"Percentage voting for Bernie: ", 100*merge$FractionVotes, "%")
+
+leaflet() %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(data = merge, fillOpacity = .6,
+                color = "white", weight = 1,
+                smoothFactor = .2,
+                fillColor = ~pal(FractionVotes),
+                popup = popup) %>% 
+    addLegend(pal = pal,values = merge$FractionVotes*100,
+              title = "Percentage Voting <br> for Bernie")
+
+
+#more interesting stuff:
+#general results
+primary %>%
+    group_by(Party, Candidate) %>%
+    summarise(mean(FractionVotes)*100)
+
+#winner by county
+winner <- primary %>% 
+            group_by(Party, State, County) %>% 
+            summarize(candidate = Candidate[which.max(FractionVotes)],
+                                            vote = max(FractionVotes))
+#hsould work for any state and party:
+
+party <- "Republican"
+state <- "Iowa"
+
+counties <- counties(state = state)
+
+final.df <- filter(winner, Party == party)
+
+merge <- geo_join(counties, final.df, "NAME", "County")
+
+
+#map of winner by county by party in IOWA
+pal = colorFactor(c("dark red","dark green", "blue"), domain = merge$candidate)
+
+leaflet() %>% 
+    addProviderTiles("CartoDB.Positron") %>% 
+    addPolygons(data = merge, weight = 1, color = "white",
+                smoothFactor = 0.2,
+                fillColor = ~pal(merge$candidate), fillOpacity = .7) %>% 
+    addLegend(pal = pal, value = merge$candidate,
+              title = "Winner by County")
+
+
+
+
+#I'd like to look at educational level and income versus who voted for whom:
+#acs package:
+geo <- geo.make(state = "IA", county = "*")
+income <- acs.fetch(table.name = "Per Capita Income", col.names = "pretty",
+                    geography = geo)
+
+#income@acs.colnames use this to see the colnames
+
+income.df <- data_frame(County = income@geography$NAME,
+                        income = income@estimate[,c("Per Capita Income:  Per capita income in the past 12 months (in 2011 inflation-adjusted dollars) ")]
+) #use the dplyr data_frame version to keep the strings
+
+income.df$County[1] # we need the first word
+
+income.df$County <- sapply(income.df$County, function(x) 
+    {strsplit(x, " ", fixed = TRUE)[[1]][1]})
+
+winner.rep <- filter(winner, Party == "Republican")
+winner.rep.ia<- inner_join(winner.rep, income.df, by = "County")
+
+winner.rep.ia %>%
+    group_by(candidate) %>%
+    summarize(mean(income))
+    
+
+#educational attainment:
+#from the census fact finder
+education <- read.csv("iowa_edu.csv", stringsAsFactors = FALSE)
+
+college <- data_frame(County = education$GEO.display.label, 
+                   college = education$HC01_EST_VC05)
+
+college <- college[-1,]
+
+college$County <- sapply(college$County, function(x) 
+{strsplit(x, " ", fixed = TRUE)[[1]][1]})
+
+winner.rep.ia <- inner_join(winner.rep.ia, college, by = "County")
+winner.rep.ia$college <- as.numeric(winner.rep.ia$college)
+
+
+ggplotly(qplot(x =  income, y = college, data = winner.rep.ia, 
+               color = candidate))
+
+# do a test to see if trump, cruz populations are similar.
+#mayber permutation? or chi-squared
+
+#let's look at democrats:
+winner.dem <- filter(winner, Party == "Democrat")
+winner.dem.ia <-inner_join(winner.dem, income.df, by = "County")
+
+winner.dem.ia <- inner_join(winner.dem.ia, college, by = "County")
+winner.dem.ia$college <- as.numeric(winner.dem.ia$college)
+
+qplot(x =  income, y = college, data = winner.dem.ia, 
+      color = candidate, size = .75) 
+
+winner.dem.ia %>% 
+    group_by(candidate) %>% 
+    summarize(mean(college), mean(income))
+
+
+```

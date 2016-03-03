@@ -1,0 +1,274 @@
+---
+title: "Patterns in the Iowa Republican Primary"
+output: 
+  html_document:
+      toc: true
+      theme: united
+---
+<style type="text/css"> 
+body{ /* Normal  */
+   font-size:17px;
+</style>
+
+I am going to focus on the Republican Primary in Iowa, plot some maps and graphs and see if I can figure out any patterns in the ways Iowans voted.
+
+## 1. Packages and Data Munging:
+
+```{r, message = FALSE, warning = FALSE}
+library(tigris)
+library(leaflet)
+library(dplyr)
+library(acs)
+library(ggplot2)
+library(plotly)
+library(grid)
+library(gridExtra)
+
+primary <- read.csv("PrimaryResults.csv", stringsAsFactors = FALSE)
+
+str(primary)
+```
+
+Basically we have the fraction of votes for each candidate in every county in Iowa and New Hampshire. Next I will filter the original dataframe to get the Iowa Republican results. Also I am mostly interested in the winners by county so I will use the `dplyr` package to create a new data frame that shows more clearly who won in each county and what percentage of votes they took.
+
+```{r}
+state = "Iowa"
+party = "Republican"
+
+Votes <- primary %>% 
+            filter( State == state, Party == party) %>% 
+            group_by(County) %>% 
+            summarize(Candidate = Candidate[which.max(FractionVotes)],
+                                            Vote = max(FractionVotes))
+head(Votes)
+```
+
+## 2. Demographics of Iowa
+
+To make more sense of the results we need to know more about the demographics for Iowa. Based on the few articles I read about the Republican primary race I'd be curious to see how the following demographic factors come into play:
+
+ - age
+ - educational attainment 
+ - urbanization levels
+ - income 
+
+Unfortunately it's somewhat hard to find a systematic way of getting this data. The closer thing I could find is the [acs](https://cran.r-project.org/web/packages/acs/acs.pdf) package - altough I couldn't find tables related to everything I was interested in. I thus instead opted to just get the demographics from the [State Data Center of Iowa] (http://www.iowadatacenter.org/browse/counties.html). Unfortunately they only give .xls files so I just copied and pasted the data I was interested in and then saved it as a csv file - hopefully I didn't mess anything up. You can find the file [here](https://github.com/apapiu/Rplots/blob/master/iowa_counties.csv). Now all we have to do is join that table with our original table.
+
+```{r, message = FALSE}
+iowa.demographics <- read.csv("https://raw.githubusercontent.com/apapiu/Rplots/master/iowa_counties.csv")
+
+Votes <- inner_join(Votes, iowa.demographics, by = "County")
+names(Votes)[5:9] <- c("Population", "Age", "Income","College", "Urban") 
+str(Votes)
+
+```
+
+Great, now we have a bunch of new variables that we can use:
+
+- `Age` is the Median Age
+- `Income` gives the median household income.
+- `College` gives the percentage of the population (in the particular county) with a college degree
+- `Urban` gives the percentage of the population living in an urban environment.
+
+
+
+## 3.Maps, Plots and Exploration
+
+Let's first map out the winners. We will do so using two asweome packages: tigris and leafet. The basic workflow is like this: tigris provides the geospatial county data that we will overlay over a leaflet map and fill in the colors based on the winning candidate. I choose tigris instead of the given kaggle spatial data to make this report more reproducible. As you will see using tigris is very easy!
+
+```{r}
+Counties <- counties(state = state) #gives the geospatial files
+```
+
+Next we join the sptial data `Counties` with the `Votes` data. We have to make sure we choose the right columns to join - in our case we're joining by county. Sometimes this will require a bit of data cleaning but in our case we're good.
+
+```{r}
+Merge <- geo_join(Counties, Votes, "NAME", "County")
+```
+
+And finally we use leaflet to plot the map:
+
+```{r}
+pal = colorFactor(c("dark red","dark green", "blue"), domain = Merge$Candidate)
+popup = paste0(Merge$County, " County")
+
+leaflet() %>% 
+    addProviderTiles("CartoDB.Positron") %>% 
+    addPolygons(data = Merge, weight = 1, color = "white",
+                smoothFactor = 0.2, popup = popup,
+                fillColor = ~pal(Merge$Candidate), fillOpacity = .7) %>% 
+    addLegend(pal = pal, value = Merge$Candidate,
+              title = "Winner by County")
+```
+
+We have our first map! Unfortunately without knowing more about the demographics of Iowa we can't really say too much. It does seem that Rubio won the more densely populated, urban areas while Trump and Cruz split the remaining counties. Now let's see if we can use the demographic data to gain any insight. Let's plot some maps based on the demographic variables:
+
+```{r, echo = FALSE}
+pal = colorNumeric("Blues", domain = Merge$Income)
+pal1 = colorNumeric("Blues", domain = Merge$College)
+leaflet() %>% 
+    addProviderTiles("CartoDB.Positron") %>% 
+    addPolygons(data = Merge, weight = 1, color = "white",
+                smoothFactor = 0.2, popup = popup,
+                fillColor = ~pal(Merge$Income), fillOpacity = .7, 
+                group = "Income") %>% 
+    addPolygons(data = Merge, weight = 1, color = "white",
+                smoothFactor = 0.2, popup = popup,
+                fillColor = ~pal1(Merge$College), fillOpacity = .7, 
+                group = "College") %>% 
+    addLayersControl(baseGroups = (c("Income", "College"))) %>% 
+    addLegend(pal = pal, value = Merge$Income,
+              title = "Median Income")
+```
+
+
+Let's also look the average demographics of candidates based on who won:
+
+```{r}
+Avg <- Votes %>% 
+        group_by(Candidate) %>%
+        summarize(mean(Income), mean(Urban), mean (College), mean(Age)) 
+Avg
+
+```
+
+
+The table above give us an idea of what the "average" county looks like in terms of the winner. Younger, less educated people tend to vote for Trump or Cruz while older, more educated voters tend to choose . Trump and Cruz seem pretty hard to differentiate - the only significant difference seems to be that the counties where Cruz wins are more rural. Let's actually plot the winning candidates based on the four demographics variables we have - we're going to do them 2 by 2. **Note that the size of the balls below are proportional to the fraction of votes  the winning candidate received.**
+
+
+```{r, echo = FALSE}
+
+ggplotly(qplot(x =  Income, y = College, data = Votes, 
+               color = Candidate, size = Vote) +
+    ggtitle("Counties by Winner, Education and Income"))
+```
+
+```{r, echo = FALSE}
+ggplotly(qplot(x =  Urban, y = Age, data = Votes, 
+               color = Candidate, size = Vote) +
+        ggtitle("Counties by Winner, Age, and Urbanization"))
+
+
+```
+
+
+The graphs above are quite striking - the first one shows a signifcant gap in income and education between Rubio on one hand and Trump and Cruz on the other hand - in fact, the data is almost linearly separable. From the second graph we can see some trends in the second plot with Rubio winning younger, more urbanized states - we should however be weary of any forceful statements however since we don't have that many data points.
+
+
+## 4. Trying out some models
+
+### 4.1 A closer look at Rubio
+
+Based on the graphs above is seems like Rubio's appeal lies within urban, wealthy, well-educated areas. To get a better understanding of this however we'll go back to the actual percentages of votes Rubio got in each County and see how much the number of votes is influenced by our 4 demographics factors: income, percentage of people with a college degree, and percentage of people living in urban areas and median age. Let's take a look:
+
+```{r, out.width = '900px', out.height = '200px', echo = FALSE}
+candidate = "Marco Rubio"
+
+rubio <- primary %>%
+            filter(Candidate == candidate, State == "Iowa")
+
+rubio <- inner_join(Votes[,-c(2,3)], rubio, by = "County")
+
+rubio$Income <- rubio$Income/1000
+rubio$FractionVotes <- rubio$FractionVotes *100 #normalize a bit
+
+
+g1 <- qplot(x = Income, y = FractionVotes, data = rubio) +
+        geom_smooth(method='lm',formula=y~x)
+
+g2 <- qplot(x = Urban, y = FractionVotes, data = rubio) +
+        geom_smooth(method='lm',formula=y~x)
+
+g3 <- qplot(x = College, y = FractionVotes, data = rubio) +
+    geom_smooth(method='lm',formula=y~x)
+
+g4 <- qplot(x = Age, y = FractionVotes, data = rubio) +
+    geom_smooth(method='lm',formula=y~x)
+
+grid.arrange(g1, g2, g3, g4, nrow =2, ncol = 2)
+```
+
+There seems to be a postitive correlation between the percentage of votes Rubio gets and how wealthy and urbanized a specific county is. It's a bit unclear if college plays a role based on the graph above. Let's take it one step further and build a prediction model of Rubio. Now I'm no Nate Silver so we'll just good old linear regression with the four demographic features that we have.
+
+```{r}
+summary(lm(FractionVotes ~ Urban + Income + College + Age, data = rubio))
+```
+
+Let's analyze the results a bit. The p-values we get suggest that there is a relation between the predictor variables of college and income and the percentage of votes Rubio gets. For every $1000 increase in the median household income, Rubio would get .37% added to his fraction of votes.
+
+
+### 4.2 A Model of Cruz
+
+Let's do the same analysis for Cruz as well.
+
+```{r, out.width = '900px', out.height = '250px', echo = FALSE}
+candidate = "Ted Cruz"
+
+rubio <- primary %>%
+            filter(Candidate == candidate, State == "Iowa")
+
+rubio <- inner_join(Votes[,-c(2,3)], rubio, by = "County")
+
+rubio$Income <- rubio$Income/1000
+rubio$FractionVotes <- rubio$FractionVotes *100 #normalize a bit
+
+
+g1 <- qplot(x = Income, y = FractionVotes, data = rubio) +
+        geom_smooth(method='lm',formula=y~x)
+
+g2 <- qplot(x = Urban, y = FractionVotes, data = rubio) +
+        geom_smooth(method='lm',formula=y~x)
+
+g3 <- qplot(x = College, y = FractionVotes, data = rubio) +
+    geom_smooth(method='lm',formula=y~x)
+
+g4 <- qplot(x = Age, y = FractionVotes, data = rubio) +
+    geom_smooth(method='lm',formula=y~x)
+
+grid.arrange(g1, g2, g3, g4, nrow =2, ncol = 2)
+```
+
+Ted Cruz's voting trends are in a lot of ways opposite to those of Rubio - he seem to fare better in poorer, less urbanized and less educated counties. The linear regression below show the median age, levels or urbanization and education levels to be somewhat related to the response. Notice however the p-values.
+
+```{r}
+summary(lm(FractionVotes ~ Urban + Income + College + Age, data = rubio))
+```
+
+### 4.3 How about Trump?
+
+Trump's harder to pin down. It seems he is more successful in poorer, less educated counties - however the linear regresion below tells us that only the college variable is significantly related to the fraction of votes Trump receives. Roughly speaking he loses .33% for every 1% increase in the proportion of the county population with college degrees - notice again the large standard errors however.
+
+```{r, out.width = '900px', out.height = '250px', echo = FALSE}
+candidate = "Donald Trump"
+
+rubio <- primary %>%
+            filter(Candidate == candidate, State == "Iowa")
+
+rubio <- inner_join(Votes[,-c(2,3)], rubio, by = "County")
+
+rubio$Income <- rubio$Income/1000
+rubio$FractionVotes <- rubio$FractionVotes *100 #normalize a bit
+
+
+g1 <- qplot(x = Income, y = FractionVotes, data = rubio) +
+        geom_smooth(method='lm',formula=y~x)
+
+g2 <- qplot(x = Urban, y = FractionVotes, data = rubio) +
+        geom_smooth(method='lm',formula=y~x)
+
+g3 <- qplot(x = College, y = FractionVotes, data = rubio) +
+    geom_smooth(method='lm',formula=y~x)
+
+g4 <- qplot(x = Age, y = FractionVotes, data = rubio) +
+    geom_smooth(method='lm',formula=y~x)
+
+grid.arrange(g1, g2, g3, g4, nrow =2, ncol = 2)
+```
+
+```{r}
+summary(lm(FractionVotes ~ Urban + Income + College + Age, data = rubio))
+```
+
+## 5. Conclusions
+This is clearly still a work in progress and it's probably a little too early to make any conclusions. Ideally I'd like to get more data...the issue I think will be getting the demographic data for New Hampshire, Nevada and South Carolina and put it in a 
+
