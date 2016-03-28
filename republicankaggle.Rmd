@@ -3,7 +3,6 @@ title: "Trends and Predictions in the Republican Primaries"
 output:
   html_document:
     toc: true
-    code_folding: hide 
 ---
 
 <style type="text/css"> 
@@ -26,7 +25,7 @@ I will give a brief summary of the data cleaning process:
 
 **If you want to see the code for any of what follows just click on the little _Code_ button on right-hand of the screen.**
 
-```{r, message = FALSE, warning = FALSE, code_folding: show}
+```{r, message = FALSE, warning = FALSE}
 library(dplyr)
 library(ggplot2)
 library(plotly)
@@ -35,34 +34,36 @@ library(gridExtra)
 library(DT)
 library(GGally)
 library(randomForest)
+library(knitr)
 
 primary <- read.csv("primary_results.csv", stringsAsFactors = FALSE)
+demographics <- read.csv("county_facts.csv", stringsAsFactors = FALSE)
 
 votes <- primary %>%  #get the winners and the fraction of votes the won
             filter(party == "Republican") %>% 
             group_by(state_abbreviation, county) %>% 
             summarize(winner = candidate[which.max(fraction_votes)],
-                                            Vote = max(fraction_votes), votes = max(votes))
+                      Vote = max(fraction_votes),
+                      votes = max(votes))
 
-demographics <- read.csv("county_facts.csv", stringsAsFactors = FALSE)
 
 demographics %<>%
     filter(state_abbreviation %in% c("IA", "NV", "SC")) %>% 
-    select(state_abbreviation = state_abbreviation, county = area_name, income = INC110213, hispanic = RHI725214,
-            white= RHI825214, college = EDU685213, density = POP060210)
+    select(state_abbreviation = state_abbreviation, county = area_name, 
+           income = INC110213, hispanic = RHI725214,
+           white= RHI825214, college = EDU685213, density = POP060210) %>% 
+    mutate(county = gsub(" County", "", county))
 
-demographics$county <- gsub(" County", "", demographics$county)
-
-
+# make sure to join by state too since some county names overlap 
 votes <- inner_join(votes, demographics, by = c("state_abbreviation","county"))
+
 ```
 
 Let's take a look at what we've got:
 ```{r}
-datatable(votes, class = 'compact')
-
-
+datatable(votes)
 ```
+
 The table above is organized by state and by county. Let's go over the features above really quickly. Remember that these demographics are at the county level.
 
 - `Vote` - the fraction of votes the winning candidate received
@@ -88,15 +89,6 @@ votes %>%
 ```
 
 A few observations between we dig deeper: Rubio's winning counties seem to be more educated and urbanized, Cruz's seem to be more white and rural while Trump's counties are somewhere in the middle.
-
-To get a better understanding I will use the really cool `ggpairs` function to plot counties based on different demographic features and color them based on who won. Then we will zoom in and look at more specific plots that look interesting. 
-
-
-```{r, message= FALSE, warning= FALSE, out.width = "1300px" }
-ggpairs(data = votes[,c(3, 5, 7, 8)], colour = "winner")
-```
-
-Whoa information overload. Let's take a look at some individual plots and see what we get:
 
 The first plot that looks promising is the one shwowing college attainment levels  vs. percentage of population that is white. 
 ```{r}
@@ -179,14 +171,13 @@ So far we have only looked at the qualitative variable of who won each county. T
 **Rubio's Fraction of Votes by county based on income, college, ethnicity and density:**
 ```{r}
 rubio <- primary %>%
-            filter(candidate == "Marco Rubio")
+            filter(candidate == "Marco Rubio") %>% 
+            inner_join(., demographics, by = c("state_abbreviation","county")) %>% 
+            mutate( income = income/1000,
+                    fraction_votes = fraction_votes*100)
+```
 
-rubio <- inner_join( rubio, demographics, by = c("state_abbreviation","county"))
-
-rubio$income <- rubio$income/1000
-rubio$fraction_votes <- rubio$fraction_votes *100 #normalize a bit
-
-
+```{r, , echo = FALSE}
 g1 <- qplot(x = income, y = fraction_votes, data = rubio, ylab = "fraction of votes") +
         geom_smooth(method='lm',formula=y~x)
 
@@ -209,14 +200,14 @@ The results agree with our previous findings. Rubio tends to get more votes in c
 
 ```{r}
 trump <- primary %>%
-            filter(candidate == "Donald Trump")
+            filter(candidate == "Donald Trump") %>% 
+            inner_join(., demographics, by = c("state_abbreviation","county")) %>% 
+            mutate( income = income/1000,
+                    fraction_votes = fraction_votes*100)
 
-trump <- inner_join( trump, demographics, by = c("state_abbreviation","county"))
+```
 
-trump$income <- trump$income/1000
-trump$fraction_votes <- trump$fraction_votes *100 #normalize a bit
-
-
+```{r, echo = FALSE}
 g1 <- qplot(x = income, y = fraction_votes, data = trump, ylab = "fraction of votes") +
         geom_smooth(method='lm',formula=y~x)
 
@@ -230,7 +221,6 @@ g4 <- qplot(x = hispanic, y = fraction_votes, data = trump, ylab = "fraction of 
     geom_smooth(method='lm',formula=y~x)
 
 grid.arrange(g1, g2, g3, g4, nrow =2, ncol = 2)
-
 ```
 
 Trump wins more votes in counties that are poor and have few college graduates - this was to be expected. But here comes the twist: he seems to get more of the vote the less white and the more hispanic the county is! I was not expecting this at all. Based on this analysis **Trump, a candidate well known for calling Mexican immigrants "criminals and rapists" is outperforming two Latino candidates: Cruz and Rubio in counties with sizable Hispanic populations**. Not only that but he seems to be doing _better_ the more Hispanic the county becomes. Now there are two big caveats. Number one, as mentioned before, is that many of the Hispanics that don’t like Trump don’t vote in the Republican primaries. But there could be an even subtler second reason for these unexpected results. It could be that white non-hispanics living in areas with a large hispanic population are more likely to be receptive to Trump's anti-immigration and, let's face it, xenophobic stance. This could be especially the case among working-class whites who feel they are in direct competition with their Hispanic counterparts. Since we don't have any data on the demographics of the people who actually voted we can't really be sure but it's a plausible hypothesis.
