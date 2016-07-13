@@ -181,13 +181,13 @@ rubio <- primary %>%
 g1 <- qplot(x = income, y = fraction_votes, data = rubio, ylab = "fraction of votes") +
         geom_smooth(method='lm',formula=y~x)
 
-g2 <- qplot(x = college, y = fraction_votes, data = rubio, ylab = "fraction of votes") +
+g2 <- qplot(x = log(college), y = fraction_votes, data = rubio, ylab = "fraction of votes") +
         geom_smooth(method='lm',formula=y~x)
 
-g3 <- qplot(x = white, y = fraction_votes, data = rubio, ylab = "fraction of votes") +
+g3 <- qplot(x = log(101 - white), y = fraction_votes, data = rubio, ylab = "fraction of votes") +
     geom_smooth(method='lm',formula=y~x)
 
-g4 <- qplot(x = density, y = fraction_votes, data = rubio, ylab = "fraction of votes") +
+g4 <- qplot(x = sqrt(density), y = fraction_votes, data = rubio, ylab = "fraction of votes") +
     geom_smooth(method='lm',formula=y~x)
 
 grid.arrange(g1, g2, g3, g4, nrow =2, ncol = 2)
@@ -211,14 +211,18 @@ trump <- primary %>%
 g1 <- qplot(x = income, y = fraction_votes, data = trump, ylab = "fraction of votes") +
         geom_smooth(method='lm',formula=y~x)
 
-g2 <- qplot(x = college, y = fraction_votes, data = trump, ylab = "fraction of votes") +
+g2 <- qplot(x = log(college), y = fraction_votes, data = trump, ylab = "fraction of votes") +
         geom_smooth(method='lm',formula=y~x)
 
-g3 <- qplot(x = white, y = fraction_votes, data = trump, ylab = "fraction of votes") +
+g3 <- qplot(x = log(100 -white), y = fraction_votes, data = trump, ylab = "fraction of votes") +
     geom_smooth(method='lm',formula=y~x)
 
-g4 <- qplot(x = hispanic, y = fraction_votes, data = trump, ylab = "fraction of votes") +
+g4 <- qplot(x = log(hispanic), y = fraction_votes, data = trump, ylab = "fraction of votes") +
     geom_smooth(method='lm',formula=y~x)
+
+qplot(x = hispanic, y = fraction_votes, data = trump, ylab = "fraction of votes") +
+    geom_smooth(method='lm',formula=y~x)
+
 
 grid.arrange(g1, g2, g3, g4, nrow =2, ncol = 2)
 ```
